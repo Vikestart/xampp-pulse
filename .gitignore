@@ -1,0 +1,16 @@
+# Real environment config (hosts / DB names) — keep out of the repo.
+# Copy environments.example.json → environments.json and fill in your own.
+/.config/environments.json
+
+# Per-install CSRF token (secret)
+/.config/.token
+
+# Computed caches (project sizes, etc.)
+/.cache/
+
+# Note: /.migrations/ is intentionally NOT ignored — versioned migrations belong in the repo.
+
+# OS / editor cruft
+__pycache__/
+.DS_Store
+Thumbs.db

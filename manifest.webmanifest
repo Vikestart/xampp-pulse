@@ -1,0 +1,13 @@
+{
+    "name": "XAMPP Pulse",
+    "short_name": "Pulse",
+    "description": "Live monitoring for local XAMPP sites and services.",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#eef1f5",
+    "theme_color": "#2563eb",
+    "icons": [
+        { "src": "/xampp-pulse/assets/img/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    ]
+}

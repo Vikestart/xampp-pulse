@@ -1,0 +1,10 @@
+[
+    {
+        "name": "example-project",
+        "environments": [
+            { "role": "local",      "host": "127.0.0.1",    "port": 3306, "db": "example_local" },
+            { "role": "staging",    "host": "100.x.x.x",    "port": 3306, "db": "example_staging" },
+            { "role": "production", "host": "100.x.x.x",    "port": 3306, "db": "example_production" }
+        ]
+    }
+]
