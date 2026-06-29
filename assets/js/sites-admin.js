@@ -125,6 +125,33 @@
             rootFix.innerHTML = orig;
         }
     });
+
+    const certFix = document.getElementById('cert-fix');
+    if (certFix) certFix.addEventListener('click', async () => {
+        const banner = document.getElementById('cert-banner');
+        const orig = certFix.innerHTML;
+        certFix.disabled = true;
+        certFix.innerHTML = 'Trusting…';
+        try {
+            const r = await post({ action: 'fix_localhost_cert' });
+            const msg = banner && banner.querySelector('.rootbanner-msg span');
+            if (r.ok && banner) {
+                banner.classList.add('ok');
+                const ic = banner.querySelector('.rootbanner-msg i');
+                if (ic) ic.className = 'fa-solid fa-circle-check';
+                if (msg) msg.innerHTML = '<b>Trusted.</b> Reloading once Apache is back… If the padlock still shows “Not secure”, fully quit and reopen your browser, then re-enable notifications once.';
+                certFix.remove();
+                setTimeout(() => location.reload(), 4000);
+            } else {
+                certFix.disabled = false;
+                certFix.innerHTML = orig;
+                if (msg) msg.innerHTML = '<b>Could not fix it:</b> ' + esc(r.error || 'unknown error') + '.';
+            }
+        } catch (e) {
+            certFix.disabled = false;
+            certFix.innerHTML = orig;
+        }
+    });
     document.addEventListener('click', (e) => {
         const ren = e.target.closest('.site-rename');
         if (ren) { openRename(ren.dataset.domain, ren.dataset.folder); return; }

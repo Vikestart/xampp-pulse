@@ -43,6 +43,8 @@ try {
         $r = sx_remove((string) ($_POST['domain'] ?? ''), !empty($_POST['keep_cert']));
     } elseif ($action === 'fix_index') {
         $r = sx_fix_root_index();
+    } elseif ($action === 'fix_localhost_cert') {
+        $r = sx_fix_localhost_cert();
     } else {
         throw new SiteError('Unknown action.');
     }

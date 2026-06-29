@@ -43,6 +43,34 @@ function pulse_root_index_ok(): bool
     return stripos((string) @file_get_contents($file), 'xampp-pulse/render.php') !== false;
 }
 
+/**
+ * Whether https://localhost is on a healthy, trusted certificate. Returns false
+ * (→ show the fix banner) if the served cert is missing, expired, has no SAN for
+ * localhost, or isn't the one Pulse generated and trusted. An untrusted origin is
+ * why browsers keep dropping the dashboard's notification permission.
+ */
+function pulse_localhost_cert_ok(): bool
+{
+    $crt = dirname(pulse_htdocs_dir()) . '/apache/conf/ssl.crt/server.crt';
+    if (!is_file($crt) || !function_exists('openssl_x509_parse')) {
+        return false;
+    }
+    $pem  = (string) @file_get_contents($crt);
+    $info = @openssl_x509_parse($pem);
+    if (!is_array($info)) {
+        return false;
+    }
+    if ((int) ($info['validTo_time_t'] ?? 0) < time()) {
+        return false; // expired
+    }
+    if (stripos((string) ($info['extensions']['subjectAltName'] ?? ''), 'localhost') === false) {
+        return false; // no SAN — modern browsers reject CN-only certs
+    }
+    $rec = @json_decode((string) @file_get_contents(pulse_htdocs_dir() . '/xampp-pulse/.config/localhost-cert.json'), true);
+    $fp  = function_exists('openssl_x509_fingerprint') ? (string) openssl_x509_fingerprint($pem, 'sha256') : '';
+    return $fp !== '' && is_array($rec) && ($rec['sha256'] ?? '') === $fp;
+}
+
 /** Persistent per-install CSRF token (for the privileged, state-changing endpoints). */
 function pulse_csrf_token(): string
 {

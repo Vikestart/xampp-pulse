@@ -102,6 +102,55 @@ function sx_backup(string $path): ?string
     return $dest;
 }
 
+/**
+ * Issue and trust a proper certificate for https://localhost, replacing XAMPP's
+ * stock self-signed/expired one in place. Records the trusted fingerprint so the
+ * dashboard knows it's fixed, then restarts Apache to serve it.
+ */
+function sx_fix_localhost_cert(): array
+{
+    $log = [];
+    $crt = SX_XAMPP . '/apache/conf/ssl.crt/server.crt';
+    $key = SX_XAMPP . '/apache/conf/ssl.key/server.key';
+    $cnf = SX_CERTS . '/localhost.cnf';
+    if (!is_dir(SX_CERTS)) {
+        @mkdir(SX_CERTS, 0777, true);
+    }
+    foreach ([$crt, $key] as $f) {
+        if (is_file($f)) {
+            $b = sx_backup($f);
+            if ($b !== null) {
+                sx_log($log, 'ok', 'Backed up ' . basename($f) . ' → ' . basename($b));
+            }
+        }
+    }
+    @file_put_contents($cnf,
+        "[req]\ndefault_bits=2048\nprompt=no\ndefault_md=sha256\nreq_extensions=req_ext\nx509_extensions=v3_req\ndistinguished_name=dn\n\n"
+        . "[dn]\nC=US\nST=Local\nL=LocalHost\nO=XAMPP Dev\nCN=localhost\n\n"
+        . "[req_ext]\nsubjectAltName=@alt\n\n[v3_req]\nsubjectAltName=@alt\n\n[alt]\nDNS.1=localhost\nIP.1=127.0.0.1\nIP.2=::1\n");
+    $r = sx_run([SX_OPENSSL, 'req', '-new', '-x509', '-newkey', 'rsa:2048', '-sha256', '-nodes', '-keyout', $key, '-days', '825', '-out', $crt, '-config', $cnf]);
+    @unlink($cnf);
+    if ($r['code'] !== 0) {
+        throw new SiteError('OpenSSL failed: ' . $r['out']);
+    }
+    sx_log($log, 'ok', 'Generated a localhost certificate (SAN: localhost, 127.0.0.1, ::1)');
+
+    $t = sx_run(['certutil', '-addstore', '-f', 'Root', $crt]);
+    sx_log($log, $t['code'] === 0 ? 'ok' : 'warn',
+        $t['code'] === 0 ? 'Trusted it in the Windows Root store' : 'Could not trust it (certutil failed) — trust it manually');
+
+    $fp = (string) openssl_x509_fingerprint((string) @file_get_contents($crt), 'sha256');
+    $cfgDir = SX_HTDOCS . '/xampp-pulse/.config';
+    if (!is_dir($cfgDir)) {
+        @mkdir($cfgDir, 0777, true);
+    }
+    @file_put_contents($cfgDir . '/localhost-cert.json', json_encode(['sha256' => $fp, 'at' => date('c')]));
+
+    sx_restart_async();
+    sx_log($log, 'ok', 'Restarting Apache to serve the new certificate…');
+    return ['ok' => true, 'log' => $log, 'message' => 'localhost is now on a trusted certificate.'];
+}
+
 /** Point htdocs/index.php at the Pulse dashboard, backing up any existing file. */
 function sx_fix_root_index(): array
 {

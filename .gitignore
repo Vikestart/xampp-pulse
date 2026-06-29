@@ -5,6 +5,9 @@
 # Per-install CSRF token (secret)
 /.config/.token
 
+# Per-install localhost-cert fingerprint marker
+/.config/localhost-cert.json
+
 # Computed caches (project sizes, etc.)
 /.cache/
 

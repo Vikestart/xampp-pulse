@@ -208,6 +208,16 @@ $tabs = [
     </div>
     <?php } ?>
 
+    <?php if (!pulse_localhost_cert_ok()) { ?>
+    <div class="rootbanner" id="cert-banner" role="alert">
+        <div class="rootbanner-msg">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span><b>localhost isn’t on a trusted certificate.</b> That’s why notifications keep switching off — browsers drop permission on untrusted origins. One click issues &amp; trusts a proper cert; Apache restarts briefly.</span>
+        </div>
+        <button class="rootbanner-fix" id="cert-fix" type="button"><i class="fa-solid fa-lock"></i> Trust localhost cert</button>
+    </div>
+    <?php } ?>
+
     <section class="hero status-<?= esc($summary['overall']) ?>" id="hero">
         <div class="hero-main">
             <span class="hero-dot"></span>
