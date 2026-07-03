@@ -1,8 +1,9 @@
 'use strict';
 (function () {
     const API = '/xampp-pulse/api.php';
+    const SITES_API = '/xampp-pulse/sites-api.php';
     const HERO_TEXT = { ok: 'All systems operational', warn: 'Some sites are down', down: 'A service is down' };
-    const TAB_KEYS = ['sites', 'services', 'databases', 'logs', 'system'];
+    const TAB_KEYS = ['sites', 'services', 'databases', 'logs', 'system', 'ssh'];
     const SPARK_MAX = 20;
 
     const $ = (id) => document.getElementById(id);
@@ -64,13 +65,22 @@
     }
 
     /* ---------- templates (mirror render.php) ---------- */
-    function serviceCard(s) {
+    const svcBtn = (svc, op, icon, label, cls) =>
+        `<button class="svc-btn ${cls || ''}" type="button" data-svc="${esc(svc)}" data-op="${op}"><i class="fa-solid ${icon}"></i> ${label}</button>`;
+    function serviceCard(key, s) {
         let ports = '';
         for (const [p, open] of Object.entries(s.ports || {})) ports += `<span class="port ${open ? 'on' : 'off'}">${esc(p)}</span>`;
+        let ctrl = '';
+        if (key === 'apache') ctrl = svcBtn('apache', 'restart', 'fa-rotate', 'Restart');
+        else if (key === 'mysql') ctrl = s.up
+            ? svcBtn('mysql', 'restart', 'fa-rotate', 'Restart') + svcBtn('mysql', 'stop', 'fa-stop', 'Stop', 'danger')
+            : svcBtn('mysql', 'start', 'fa-play', 'Start', 'go');
         return `<article class="svc-card status-${s.up ? 'up' : 'down'}">`
             + `<div class="svc-top"><span class="dot"></span><h3>${esc(s.name)}</h3>`
             + `<span class="svc-state">${s.up ? 'Running' : 'Stopped'}</span></div>`
-            + `<p class="svc-detail">${esc(s.detail)}</p><div class="ports">${ports}</div></article>`;
+            + `<p class="svc-detail">${esc(s.detail)}</p><div class="ports">${ports}</div>`
+            + (ctrl ? `<div class="svc-ctrl">${ctrl}</div>` : '')
+            + '</article>';
     }
 
     function siteCard(s) {
@@ -265,7 +275,7 @@
     function apply(data) {
         latest = data;
         if (data.summary) renderHero(data.summary);
-        if (data.services) servicesEl.innerHTML = Object.values(data.services).map(serviceCard).join('');
+        if (data.services) servicesEl.innerHTML = Object.entries(data.services).map(([k, s]) => serviceCard(k, s)).join('');
         if (Array.isArray(data.sites)) {
             sitesByKey = {};
             const counts = { all: 0, up: 0, down: 0, issues: 0 };
@@ -414,6 +424,29 @@
         const card = e.target.closest('.site-card');
         if (card && card.dataset.key) { e.preventDefault(); openDrawer(card.dataset.key); }
     });
+    servicesEl.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.svc-btn');
+        if (!btn) return;
+        const svc = btn.dataset.svc;
+        const op = btn.dataset.op;
+        if (op === 'stop' && !window.confirm(`Stop ${svc}? Local sites using it will go down until you start it again.`)) return;
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.textContent = 'Working…';
+        try {
+            const res = await fetch(SITES_API, {
+                method: 'POST',
+                body: new URLSearchParams({ action: 'service', service: svc, op, csrf: window.__PULSE_TOKEN__ || '' }),
+                cache: 'no-store',
+            });
+            const r = await res.json();
+            if (!r.ok) { btn.disabled = false; btn.innerHTML = orig; window.alert(r.error || 'Service action failed.'); return; }
+            setTimeout(poll, svc === 'apache' ? 2800 : 1500);
+        } catch (x) {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    });
     drawerOverlay.addEventListener('click', closeDrawer);
     $('drawer-close').addEventListener('click', closeDrawer);
     drawerBody.addEventListener('click', (e) => {
@@ -449,7 +482,7 @@
         if (e.key === 'Escape') { closeDrawer(); return; }
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
-        if (e.key >= '1' && e.key <= '5') {
+        if (e.key >= '1' && e.key <= '6') {
             const k = TAB_KEYS[+e.key - 1];
             document.documentElement.dataset.tab = k;
             try { localStorage.setItem('dash-tab', k); } catch (x) { /* ignore */ }

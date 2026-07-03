@@ -8,6 +8,9 @@
 # Per-install localhost-cert fingerprint marker
 /.config/localhost-cert.json
 
+# Per-install SSH profile preference
+/.config/ssh.json
+
 # Computed caches (project sizes, etc.)
 /.cache/
 

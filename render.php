@@ -158,6 +158,7 @@ $tabs = [
     'databases' => ['Databases', 'fa-database'],
     'logs'      => ['Logs', 'fa-file-lines'],
     'system'    => ['System', 'fa-microchip'],
+    'ssh'       => ['SSH', 'fa-terminal'],
 ];
 ?>
 <!doctype html>
@@ -374,6 +375,31 @@ $tabs = [
         </div>
     </section>
 
+    <section class="view" data-view="ssh">
+        <section class="panel">
+            <div class="panel-head">
+                <h2><i class="fa-solid fa-terminal"></i> SSH config <span class="count" id="ssh-count">0</span></h2>
+                <div class="head-actions">
+                    <select id="ssh-profile" class="mini-select" aria-label="User profile" title="Whose ~/.ssh/config to manage"></select>
+                    <button id="ssh-launch" class="mini-btn" type="button" title="One-click terminal launcher — registers a pulsessh:// handler on this PC (reversible)"><i class="fa-solid fa-bolt"></i> <span id="ssh-launch-label">Enable terminal launch</span></button>
+                    <button id="ssh-add" class="mini-btn" type="button"><i class="fa-solid fa-plus"></i> Add host</button>
+                </div>
+            </div>
+            <p class="ssh-path" id="ssh-path">Loading…</p>
+            <div class="ssh-hosts" id="ssh-hosts"></div>
+            <span class="ssh-status" id="ssh-status"></span>
+            <button class="ssh-raw-toggle" id="ssh-raw-toggle" type="button" aria-expanded="false"><i class="fa-solid fa-chevron-right chev"></i> Raw config</button>
+            <div class="ssh-raw" id="ssh-raw">
+                <div class="ssh-raw-inner">
+                    <textarea id="ssh-editor" class="ssh-editor" spellcheck="false" autocomplete="off" aria-label="SSH config file contents"></textarea>
+                    <div class="ssh-actions">
+                        <button id="ssh-save" class="btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> Save config</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </section>
+
     <footer class="foot">
         <span>XAMPP Pulse</span>
         <a href="https://astole.me" target="_blank" rel="noopener">© Aleksander Støle</a>
@@ -397,5 +423,6 @@ $tabs = [
 <script defer src="/xampp-pulse/assets/js/sync.js"></script>
 <script defer src="/xampp-pulse/assets/js/migrations.js"></script>
 <script defer src="/xampp-pulse/assets/js/sites-admin.js"></script>
+<script defer src="/xampp-pulse/assets/js/ssh.js"></script>
 </body>
 </html>

@@ -151,6 +151,86 @@ function sx_fix_localhost_cert(): array
     return ['ok' => true, 'log' => $log, 'message' => 'localhost is now on a trusted certificate.'];
 }
 
+/** Absolute path to the pulsessh:// launcher wrapper (shipped in the repo). */
+function sx_ssh_wrapper(): string
+{
+    return SX_HTDOCS . '/xampp-pulse/bin/pulse-ssh.ps1';
+}
+
+/** Whether the pulsessh:// protocol handler is registered and points at our wrapper. */
+function sx_ssh_protocol_status(): bool
+{
+    $r = sx_run(['reg', 'query', 'HKLM\\SOFTWARE\\Classes\\pulsessh\\shell\\open\\command', '/ve']);
+    return $r['code'] === 0 && stripos($r['out'], 'pulse-ssh.ps1') !== false;
+}
+
+/** Register the pulsessh:// handler machine-wide (needs the SYSTEM context). */
+function sx_register_ssh_protocol(): array
+{
+    $log = [];
+    $wrapper = sx_ssh_wrapper();
+    if (!is_file($wrapper)) {
+        throw new SiteError('Launcher script missing: ' . $wrapper);
+    }
+    $cmd = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' . $wrapper . '" "%1"';
+    $key = 'HKLM\\SOFTWARE\\Classes\\pulsessh';
+    $r1 = sx_run(['reg', 'add', $key, '/ve', '/d', 'URL:Pulse SSH', '/f']);
+    $r2 = sx_run(['reg', 'add', $key, '/v', 'URL Protocol', '/f']);
+    $r3 = sx_run(['reg', 'add', $key . '\\shell\\open\\command', '/ve', '/d', $cmd, '/f']);
+    if ($r1['code'] !== 0 || $r2['code'] !== 0 || $r3['code'] !== 0) {
+        throw new SiteError('Registry write failed: ' . trim($r1['out'] . ' ' . $r2['out'] . ' ' . $r3['out']));
+    }
+    sx_log($log, 'ok', 'Registered pulsessh:// → ' . basename($wrapper));
+    return ['ok' => true, 'enabled' => true, 'log' => $log, 'message' => 'Terminal launching enabled.'];
+}
+
+/** Remove the pulsessh:// handler (idempotent). */
+function sx_unregister_ssh_protocol(): array
+{
+    $log = [];
+    sx_run(['reg', 'delete', 'HKLM\\SOFTWARE\\Classes\\pulsessh', '/f']);
+    sx_log($log, 'ok', 'Removed the pulsessh:// handler.');
+    return ['ok' => true, 'enabled' => false, 'log' => $log, 'message' => 'Terminal launching disabled.'];
+}
+
+/** Find the Windows service whose binary path matches $needle (e.g. 'mysqld'). */
+function sx_service_name(string $needle): ?string
+{
+    $ps = "Get-CimInstance Win32_Service | Where-Object { \$_.PathName -match '$needle' } | Select-Object -First 1 -ExpandProperty Name";
+    $r = sx_run(['powershell', '-NoProfile', '-NonInteractive', '-Command', $ps]);
+    $name = trim($r['out']);
+    return ($r['code'] === 0 && $name !== '' && preg_match('/^[A-Za-z0-9_.\- ]+$/', $name)) ? $name : null;
+}
+
+/** Start/stop/restart a monitored service. Apache is restart-only (it hosts us). */
+function sx_service_control(string $service, string $op): array
+{
+    $log = [];
+    if (!in_array($op, ['start', 'stop', 'restart'], true)) {
+        throw new SiteError('Unknown operation.');
+    }
+    if ($service === 'apache') {
+        if ($op !== 'restart') {
+            throw new SiteError('Apache is restart-only from the dashboard — a stop would take the dashboard down.');
+        }
+        sx_restart_async();
+        sx_log($log, 'ok', 'Apache restart signalled (httpd -k restart).');
+        return ['ok' => true, 'log' => $log, 'message' => 'Apache is restarting…'];
+    }
+    if ($service === 'mysql') {
+        $name = sx_service_name('mysqld');
+        if ($name === null) {
+            throw new SiteError('No MySQL/MariaDB Windows service found — it may be running as a process; use the XAMPP control panel.');
+        }
+        $verb = ['start' => 'Start-Service', 'stop' => 'Stop-Service', 'restart' => 'Restart-Service'][$op];
+        $r = sx_run(['powershell', '-NoProfile', '-NonInteractive', '-Command', "$verb -Name '$name' -Force -ErrorAction Stop; 'ok'"]);
+        $ok = $r['code'] === 0;
+        sx_log($log, $ok ? 'ok' : 'warn', "$verb $name — " . ($ok ? 'ok' : trim($r['out'])));
+        return ['ok' => $ok, 'log' => $log, 'message' => 'MySQL ' . $op . ($ok ? ' complete.' : ' failed — check the log.')];
+    }
+    throw new SiteError('Unknown service.');
+}
+
 /** Point htdocs/index.php at the Pulse dashboard, backing up any existing file. */
 function sx_fix_root_index(): array
 {
