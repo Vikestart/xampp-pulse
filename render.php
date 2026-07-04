@@ -1,6 +1,15 @@
 <?php
 declare(strict_types=1);
 
+// Defence-in-depth: only serve to a local Host (blocks DNS-rebinding against the dashboard).
+$__host = strtolower((string) preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost')));
+if (!in_array($__host, ['localhost', '127.0.0.1', '::1', '[::1]'], true)) {
+    http_response_code(403);
+    exit('Forbidden.');
+}
+$nonce = base64_encode(random_bytes(16));
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+
 require_once __DIR__ . '/lib/collectors.php';
 
 $snap      = collect_snapshot();
@@ -159,6 +168,8 @@ $tabs = [
     'logs'      => ['Logs', 'fa-file-lines'],
     'system'    => ['System', 'fa-microchip'],
     'ssh'       => ['SSH', 'fa-terminal'],
+    'mail'      => ['Mail', 'fa-envelope'],
+    'live'      => ['Live', 'fa-satellite-dish'],
 ];
 ?>
 <!doctype html>
@@ -172,7 +183,7 @@ $tabs = [
 <link rel="icon" type="image/svg+xml" href="/xampp-pulse/assets/img/icon.svg">
 <link rel="icon" href="/favicon.ico">
 <link rel="stylesheet" href="/xampp-pulse/assets/css/dashboard.css">
-<script>(function(){try{var d=document.documentElement,t=localStorage.getItem('dash-theme'),b=localStorage.getItem('dash-tab');if(t)d.dataset.theme=t;if(b)d.dataset.tab=b;if(localStorage.getItem('dash-db-collapsed')==='1')d.dataset.dbcollapsed='1';}catch(e){}})();</script>
+<script nonce="<?= $nonce ?>">(function(){try{var d=document.documentElement,t=localStorage.getItem('dash-theme'),b=localStorage.getItem('dash-tab');if(t)d.dataset.theme=t;if(b)d.dataset.tab=b;if(localStorage.getItem('dash-db-collapsed')==='1')d.dataset.dbcollapsed='1';}catch(e){}})();</script>
 </head>
 <body>
 <div class="wrap">
@@ -193,6 +204,7 @@ $tabs = [
                 <option value="30000">30s</option>
                 <option value="0">Off</option>
             </select>
+            <button class="icon-btn" id="lock-toggle" type="button" aria-label="Lock or unlock privileged actions"><i class="fa-solid fa-lock"></i></button>
             <button class="icon-btn" id="notify" type="button" aria-label="Toggle notifications" title="Notify on outages"><i class="fa-solid fa-bell-slash"></i></button>
             <button class="icon-btn" id="refresh" type="button" aria-label="Refresh now"><i class="fa-solid fa-rotate"></i></button>
             <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
@@ -373,6 +385,28 @@ $tabs = [
                 </div>
             </section>
         </div>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2><i class="fa-solid fa-gears"></i> PHP tools</h2>
+                <div class="head-actions">
+                    <button id="xdebug-toggle" class="mini-btn" type="button" disabled><i class="fa-solid fa-bug"></i> <span id="xdebug-label">Xdebug…</span></button>
+                </div>
+            </div>
+            <p class="php-note" id="xdebug-note">Open this tab to check Xdebug.</p>
+            <button class="ssh-raw-toggle" id="ini-toggle" type="button" aria-expanded="false"><i class="fa-solid fa-chevron-right chev"></i> Edit php.ini</button>
+            <div class="ssh-raw" id="ini-wrap">
+                <div class="ssh-raw-inner">
+                    <p class="php-note"><i class="fa-solid fa-triangle-exclamation"></i> Powerful: a change that would stop PHP from starting is auto‑reverted, the previous file is backed up, and saving restarts Apache.</p>
+                    <textarea id="ini-editor" class="ssh-editor" spellcheck="false" autocomplete="off" aria-label="php.ini contents"></textarea>
+                    <div class="ssh-actions">
+                        <button id="ini-save" class="btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> Save php.ini</button>
+                        <button id="ini-reload" class="mini-btn" type="button" title="Reload from disk"><i class="fa-solid fa-rotate"></i></button>
+                        <span class="ssh-status" id="ini-status"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
     </section>
 
     <section class="view" data-view="ssh">
@@ -400,6 +434,38 @@ $tabs = [
         </section>
     </section>
 
+    <section class="view" data-view="mail">
+        <section class="panel">
+            <div class="panel-head">
+                <h2><i class="fa-solid fa-envelope"></i> Mail catcher <span class="count" id="mail-count">0</span></h2>
+                <div class="head-actions">
+                    <button id="mail-toggle" class="mini-btn" type="button"><i class="fa-solid fa-inbox"></i> <span id="mail-toggle-label">Enable catching</span></button>
+                    <button id="mail-refresh" class="mini-btn" type="button" title="Refresh"><i class="fa-solid fa-rotate"></i></button>
+                    <button id="mail-clear" class="mini-btn" type="button" title="Delete all caught mail"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+            <p class="mail-note" id="mail-note"></p>
+            <div class="mail-layout">
+                <div class="mail-list" id="mail-list"></div>
+                <div class="mail-view" id="mail-view"><p class="empty">Select a message to read it.</p></div>
+            </div>
+        </section>
+    </section>
+
+    <section class="view" data-view="live">
+        <section class="panel">
+            <div class="panel-head">
+                <h2><i class="fa-solid fa-satellite-dish"></i> Live endpoints <span class="count" id="live-count">0</span></h2>
+                <div class="head-actions">
+                    <button id="live-add" class="mini-btn" type="button"><i class="fa-solid fa-plus"></i> Add endpoint</button>
+                    <button id="live-refresh" class="mini-btn" type="button" title="Re-check all"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+            </div>
+            <p class="cmp-note">Monitor your production / staging URLs — uptime, response time and TLS‑certificate expiry. Endpoints are stored per‑install in <code>.config/monitors.json</code>, so each copy of the dashboard keeps its own.</p>
+            <div class="live-grid" id="live-list"></div>
+        </section>
+    </section>
+
     <footer class="foot">
         <span>XAMPP Pulse</span>
         <a href="https://astole.me" target="_blank" rel="noopener">© Aleksander Støle</a>
@@ -415,14 +481,22 @@ $tabs = [
     <div class="drawer-body" id="drawer-body"></div>
 </aside>
 
-<script>window.__PULSE_TOKEN__ = <?= json_encode(pulse_csrf_token()) ?>;</script>
-<script>window.__SNAPSHOT__ = <?= pulse_json($snap) ?>;</script>
+<script nonce="<?= $nonce ?>">window.__PULSE_TOKEN__ = <?= json_encode(pulse_csrf_token()) ?>;</script>
+<script nonce="<?= $nonce ?>">window.__SNAPSHOT__ = <?= pulse_json($snap) ?>;</script>
 <script defer src="/xampp-pulse/assets/font-awesome/fontawesome.min.js"></script>
 <script defer src="/xampp-pulse/assets/font-awesome/solid.min.js"></script>
+<script defer src="/xampp-pulse/assets/js/auth.js"></script>
 <script defer src="/xampp-pulse/assets/js/dashboard.js"></script>
 <script defer src="/xampp-pulse/assets/js/sync.js"></script>
 <script defer src="/xampp-pulse/assets/js/migrations.js"></script>
 <script defer src="/xampp-pulse/assets/js/sites-admin.js"></script>
+<script defer src="/xampp-pulse/assets/js/env.js"></script>
+<script defer src="/xampp-pulse/assets/js/git.js"></script>
+<script defer src="/xampp-pulse/assets/js/tasks.js"></script>
+<script defer src="/xampp-pulse/assets/js/live.js"></script>
 <script defer src="/xampp-pulse/assets/js/ssh.js"></script>
+<script defer src="/xampp-pulse/assets/js/mail.js"></script>
+<script defer src="/xampp-pulse/assets/js/phptools.js"></script>
+<script defer src="/xampp-pulse/assets/js/palette.js"></script>
 </body>
 </html>

@@ -1,10 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/**
- * SSH config endpoint — localhost-only AND CSRF-protected. Reading exposes host
- * details and writing runs as SYSTEM, so both actions require the token.
- */
+/** Live-server endpoint — localhost + Origin + CSRF + unlock guarded. */
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -15,7 +12,6 @@ if (!in_array($remote, ['127.0.0.1', '::1'], true)) {
     echo json_encode(['ok' => false, 'error' => 'Forbidden — localhost only.']);
     exit;
 }
-
 $origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
 if ($origin !== '' && !in_array(parse_url($origin, PHP_URL_HOST), ['localhost', '127.0.0.1', '::1'], true)) {
     http_response_code(403);
@@ -24,8 +20,7 @@ if ($origin !== '' && !in_array(parse_url($origin, PHP_URL_HOST), ['localhost', 
 }
 
 require_once __DIR__ . '/lib/helpers.php';
-require_once __DIR__ . '/lib/ssh.php';
-require_once __DIR__ . '/lib/sites.php';
+require_once __DIR__ . '/lib/live.php';
 require_once __DIR__ . '/lib/auth.php';
 
 if (!hash_equals(pulse_csrf_token(), (string) ($_POST['csrf'] ?? ''))) {
@@ -36,21 +31,19 @@ if (!hash_equals(pulse_csrf_token(), (string) ($_POST['csrf'] ?? ''))) {
 
 pulse_require_unlock();
 
-$action = (string) ($_POST['action'] ?? 'load');
-pulse_audit('ssh.' . $action, $_POST);
+$action = (string) ($_POST['action'] ?? 'monitors_list');
+pulse_audit('live.' . $action, $_POST);
+
 try {
-    if ($action === 'load') {
-        $user = (string) ($_POST['user'] ?? '');
-        $r = ssh_load($user !== '' ? $user : null);
-        $r['proto'] = sx_ssh_protocol_status();
-    } elseif ($action === 'save') {
-        $r = ssh_save((string) ($_POST['user'] ?? ''), (string) ($_POST['content'] ?? ''));
-    } elseif ($action === 'proto_enable') {
-        $r = sx_register_ssh_protocol();
-    } elseif ($action === 'proto_disable') {
-        $r = sx_unregister_ssh_protocol();
+    if ($action === 'monitors_list') {
+        $r = ['ok' => true, 'monitors' => live_monitors_read()];
+    } elseif ($action === 'monitors_save') {
+        $in = json_decode((string) ($_POST['monitors'] ?? '[]'), true);
+        $r = ['ok' => true, 'monitors' => live_monitors_save(is_array($in) ? $in : [])];
+    } elseif ($action === 'monitors_check') {
+        $r = ['ok' => true] + live_check_configured((string) ($_POST['url'] ?? ''));
     } else {
-        throw new SshError('Unknown action.');
+        throw new RuntimeException('Unknown action.');
     }
     echo pulse_json($r);
 } catch (Throwable $e) {

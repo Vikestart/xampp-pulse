@@ -5,11 +5,27 @@
 # Per-install CSRF token (secret)
 /.config/.token
 
+# Auth gate: passphrase hash + active unlock token (secrets)
+/.config/.auth
+/.config/.unlock
+
+# Audit log
+/.log/
+
+# Caught local mail
+/.config/mail/
+
+# Task runner scratch (logs/markers)
+/.config/tasks/
+
 # Per-install localhost-cert fingerprint marker
 /.config/localhost-cert.json
 
 # Per-install SSH profile preference
 /.config/ssh.json
+
+# Per-install live-endpoint monitors (copy monitors.example.json → monitors.json)
+/.config/monitors.json
 
 # Computed caches (project sizes, etc.)
 /.cache/

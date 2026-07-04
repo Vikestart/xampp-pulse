@@ -6,9 +6,7 @@
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => escMap[c]);
 
     async function post(p) {
-        p.csrf = TOKEN;
-        const r = await fetch(API, { method: 'POST', body: new URLSearchParams(p), cache: 'no-store' });
-        return r.json();
+        return window.pulsePost(API, p);
     }
 
     function modal(title, bodyHtml) {

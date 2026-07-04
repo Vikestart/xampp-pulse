@@ -20,8 +20,7 @@
     let lastCmp = null;
 
     async function post(params) {
-        const res = await fetch(API, { method: 'POST', body: new URLSearchParams(params), cache: 'no-store' });
-        return res.json();
+        return window.pulsePost(API, params);
     }
     function indexEnvs() {
         groupsMap = new Map();

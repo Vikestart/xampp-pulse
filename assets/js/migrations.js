@@ -12,8 +12,7 @@
     let envById = {};
 
     async function post(p) {
-        const r = await fetch(API, { method: 'POST', body: new URLSearchParams(p), cache: 'no-store' });
-        return r.json();
+        return window.pulsePost(API, p);
     }
     function indexEnvs() {
         groupsMap = new Map(); envById = {};

@@ -20,9 +20,7 @@
     let protoEnabled = false;
 
     async function post(p) {
-        p.csrf = TOKEN;
-        const r = await fetch(API, { method: 'POST', body: new URLSearchParams(p), cache: 'no-store' });
-        return r.json();
+        return window.pulsePost(API, p);
     }
 
     /* Split raw text into Host blocks with line spans (mirrors ssh_parse in lib/ssh.php). */

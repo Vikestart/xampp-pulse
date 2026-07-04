@@ -231,6 +231,102 @@ function sx_service_control(string $service, string $op): array
     throw new SiteError('Unknown service.');
 }
 
+/** Run git within a project root. safe.directory=* because Apache runs as SYSTEM while
+ *  the repos are owned by the interactive user (git's "dubious ownership" guard). */
+function sx_git(string $root, array $args): array
+{
+    return sx_run(array_merge(['git', '-c', 'safe.directory=*', '-C', $root], $args));
+}
+
+/** Read-only git status for a site (branch, dirty, ahead/behind, recent commits). */
+function sx_git_status(string $folder): array
+{
+    $folder = basename($folder);
+    $root = SX_HTDOCS . '/' . $folder;
+    if ($folder === '' || !is_dir($root)) {
+        throw new SiteError('Unknown site folder.');
+    }
+    if (!is_dir($root . '/.git')) {
+        return ['ok' => true, 'is_repo' => false, 'folder' => $folder, 'root' => $root];
+    }
+    $branch = trim(sx_git($root, ['rev-parse', '--abbrev-ref', 'HEAD'])['out']);
+    $porcelain = sx_git($root, ['status', '--porcelain'])['out'];
+    $dirty = $porcelain === '' ? 0 : count(array_filter(explode("\n", $porcelain), static fn($l) => trim($l) !== ''));
+    $remote = trim(sx_git($root, ['remote', 'get-url', 'origin'])['out']);
+
+    $ahead = 0;
+    $behind = 0;
+    $upstream = '';
+    $up = sx_git($root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    if ($up['code'] === 0) {
+        $upstream = trim($up['out']);
+        $counts = trim(sx_git($root, ['rev-list', '--left-right', '--count', 'HEAD...@{u}'])['out']);
+        if (preg_match('/^(\d+)\s+(\d+)$/', $counts, $m)) {
+            $ahead = (int) $m[1];
+            $behind = (int) $m[2];
+        }
+    }
+
+    $commits = [];
+    foreach (explode("\n", sx_git($root, ['log', '-8', '--pretty=format:%h%x1f%s%x1f%an%x1f%ar'])['out']) as $line) {
+        if ($line === '') {
+            continue;
+        }
+        $p = explode("\x1f", $line);
+        if (count($p) >= 4) {
+            $commits[] = ['hash' => $p[0], 'subject' => $p[1], 'author' => $p[2], 'when' => $p[3]];
+        }
+    }
+    return [
+        'ok' => true, 'is_repo' => true, 'folder' => $folder, 'root' => $root,
+        'branch' => $branch, 'dirty' => $dirty, 'ahead' => $ahead, 'behind' => $behind,
+        'upstream' => $upstream, 'remote' => $remote, 'commits' => $commits,
+    ];
+}
+
+/** Read a site's .env (project root = htdocs/<folder>); seeds from .env.example if absent. */
+function sx_env_read(string $folder): array
+{
+    $folder = basename($folder);
+    $root = SX_HTDOCS . '/' . $folder;
+    if ($folder === '' || !is_dir($root)) {
+        throw new SiteError('Unknown site folder.');
+    }
+    $path = $root . '/.env';
+    $exists = is_file($path);
+    $content = $exists ? (string) @file_get_contents($path) : '';
+    $seeded = false;
+    if (!$exists && is_file($root . '/.env.example')) {
+        $content = (string) @file_get_contents($root . '/.env.example');
+        $seeded = true;
+    }
+    return ['ok' => true, 'folder' => $folder, 'path' => $path, 'exists' => $exists, 'seeded' => $seeded, 'content' => $content];
+}
+
+/** Write a site's .env, backing up any existing file first. */
+function sx_env_save(string $folder, string $content): array
+{
+    $folder = basename($folder);
+    $root = SX_HTDOCS . '/' . $folder;
+    if ($folder === '' || !is_dir($root)) {
+        throw new SiteError('Unknown site folder.');
+    }
+    $path = $root . '/.env';
+    $log = [];
+    $content = str_replace("\r\n", "\n", $content);
+    if (is_file($path)) {
+        $bak = sx_backup($path);
+        if ($bak !== null) {
+            sx_log($log, 'ok', 'Backed up existing .env → ' . basename($bak));
+        }
+    }
+    if (@file_put_contents($path, $content) === false) {
+        throw new SiteError('Could not write ' . $path . ' (permission denied).');
+    }
+    sx_log($log, 'ok', 'Saved ' . $path . ' (' . strlen($content) . ' bytes)');
+    return ['ok' => true, 'log' => $log, 'message' => '.env saved.'];
+}
+
 /** Point htdocs/index.php at the Pulse dashboard, backing up any existing file. */
 function sx_fix_root_index(): array
 {

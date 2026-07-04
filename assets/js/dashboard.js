@@ -3,7 +3,7 @@
     const API = '/xampp-pulse/api.php';
     const SITES_API = '/xampp-pulse/sites-api.php';
     const HERO_TEXT = { ok: 'All systems operational', warn: 'Some sites are down', down: 'A service is down' };
-    const TAB_KEYS = ['sites', 'services', 'databases', 'logs', 'system', 'ssh'];
+    const TAB_KEYS = ['sites', 'services', 'databases', 'logs', 'system', 'ssh', 'mail', 'live'];
     const SPARK_MAX = 20;
 
     const $ = (id) => document.getElementById(id);
@@ -230,6 +230,9 @@
         if (s.configured) actions.push(`<a class="action" href="https://${esc(s.domain)}/" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i><span>Open site</span></a>`);
         if (s.docroot_exists) actions.push(`<a class="action" href="vscode://file/${esc(s.docroot)}"><i class="fa-solid fa-code"></i><span>Open in VS Code</span></a>`);
         if (s.docroot_exists) actions.push(`<button class="action copy-path" type="button" data-path="${esc(s.docroot)}"><i class="fa-solid fa-copy"></i><span>Copy path</span></button>`);
+        if (s.docroot_exists) actions.push(`<button class="action site-env" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-file-code"></i><span>Edit .env</span></button>`);
+        if (s.docroot_exists) actions.push(`<button class="action site-git" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-code-branch"></i><span>Git</span></button>`);
+        if (s.docroot_exists) actions.push(`<button class="action site-tasks" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-play"></i><span>Tasks</span></button>`);
         if (s.configured) actions.push(`<button class="action site-rename" data-domain="${esc(s.domain)}" data-folder="${esc(s.folder)}"><i class="fa-solid fa-pen"></i><span>Rename</span></button>`);
         if (s.configured) actions.push(`<button class="action danger site-remove" data-domain="${esc(s.domain)}" data-folder="${esc(s.folder)}"><i class="fa-solid fa-trash"></i><span>Remove</span></button>`);
         return `<div class="drawer-tags">${tags.join('')}</div>`
@@ -434,12 +437,7 @@
         btn.disabled = true;
         btn.textContent = 'Working…';
         try {
-            const res = await fetch(SITES_API, {
-                method: 'POST',
-                body: new URLSearchParams({ action: 'service', service: svc, op, csrf: window.__PULSE_TOKEN__ || '' }),
-                cache: 'no-store',
-            });
-            const r = await res.json();
+            const r = await window.pulsePost(SITES_API, { action: 'service', service: svc, op });
             if (!r.ok) { btn.disabled = false; btn.innerHTML = orig; window.alert(r.error || 'Service action failed.'); return; }
             setTimeout(poll, svc === 'apache' ? 2800 : 1500);
         } catch (x) {
@@ -482,7 +480,7 @@
         if (e.key === 'Escape') { closeDrawer(); return; }
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
-        if (e.key >= '1' && e.key <= '6') {
+        if (e.key >= '1' && e.key <= '8') {
             const k = TAB_KEYS[+e.key - 1];
             document.documentElement.dataset.tab = k;
             try { localStorage.setItem('dash-tab', k); } catch (x) { /* ignore */ }
@@ -518,6 +516,8 @@
     syncStickyTabs();
     window.pulseRefresh = poll;
     window.pulseCloseDrawer = closeDrawer;
+    window.pulseOpenDrawer = openDrawer;
+    window.pulseSiteList = () => Object.entries(sitesByKey).map(([key, s]) => ({ key, name: s.domain || s.folder, up: s.status === 'up' }));
     if (window.__SNAPSHOT__) apply(window.__SNAPSHOT__);
     poll();
     startTimer();

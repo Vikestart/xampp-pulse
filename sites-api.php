@@ -26,6 +26,7 @@ if ($origin !== '' && !in_array(parse_url($origin, PHP_URL_HOST), ['localhost', 
 
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/sites.php';
+require_once __DIR__ . '/lib/auth.php';
 
 if (!hash_equals(pulse_csrf_token(), (string) ($_POST['csrf'] ?? ''))) {
     http_response_code(403);
@@ -33,7 +34,10 @@ if (!hash_equals(pulse_csrf_token(), (string) ($_POST['csrf'] ?? ''))) {
     exit;
 }
 
+pulse_require_unlock();
+
 $action = (string) ($_POST['action'] ?? '');
+pulse_audit('sites.' . $action, $_POST);
 try {
     if ($action === 'create') {
         $r = sx_create((string) ($_POST['domain'] ?? ''), (string) ($_POST['folder'] ?? ''), (string) ($_POST['slug'] ?? ''));
@@ -47,6 +51,12 @@ try {
         $r = sx_fix_localhost_cert();
     } elseif ($action === 'service') {
         $r = sx_service_control((string) ($_POST['service'] ?? ''), (string) ($_POST['op'] ?? ''));
+    } elseif ($action === 'env_read') {
+        $r = sx_env_read((string) ($_POST['folder'] ?? ''));
+    } elseif ($action === 'env_save') {
+        $r = sx_env_save((string) ($_POST['folder'] ?? ''), (string) ($_POST['content'] ?? ''));
+    } elseif ($action === 'git_status') {
+        $r = sx_git_status((string) ($_POST['folder'] ?? ''));
     } else {
         throw new SiteError('Unknown action.');
     }

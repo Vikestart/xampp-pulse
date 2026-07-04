@@ -7,22 +7,37 @@ declare(strict_types=1);
  * stored or logged.
  */
 
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
 $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
 if (!in_array($remote, ['127.0.0.1', '::1'], true)) {
     http_response_code(403);
-    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['ok' => false, 'error' => 'Forbidden — localhost only.']);
+    exit;
+}
+$origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
+if ($origin !== '' && !in_array(parse_url($origin, PHP_URL_HOST), ['localhost', '127.0.0.1', '::1'], true)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Forbidden — bad origin.']);
     exit;
 }
 
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/dbsync.php';
 require_once __DIR__ . '/lib/migrations.php';
+require_once __DIR__ . '/lib/auth.php';
 
-header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store');
+if (!hash_equals(pulse_csrf_token(), (string) ($_POST['csrf'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Invalid security token — reload the page and try again.']);
+    exit;
+}
 
-$action = (string) ($_POST['action'] ?? $_GET['action'] ?? 'envs');
+pulse_require_unlock();
+
+$action = (string) ($_POST['action'] ?? 'envs');
+pulse_audit('sync.' . $action, $_POST);
 
 try {
     if ($action === 'envs') {

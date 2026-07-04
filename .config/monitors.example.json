@@ -1,0 +1,4 @@
+[
+    { "label": "Production", "url": "https://example.com" },
+    { "label": "Staging", "url": "https://staging.example.com" }
+]
