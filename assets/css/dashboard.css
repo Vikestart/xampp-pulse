@@ -43,6 +43,16 @@ h1,h2,h3{margin:0;}
 .icon-btn:hover{background:var(--surface-2);border-color:var(--accent);}
 .icon-btn:active{transform:scale(.94);}
 .icon-btn.busy>svg,.icon-btn.busy>i{animation:spin .8s linear infinite;}
+.notify-hint{
+    position:fixed;top:90px;right:22px;z-index:1400;display:flex;gap:10px;align-items:flex-start;max-width:300px;
+    padding:12px 14px;background:var(--surface);border:1px solid var(--accent);border-radius:12px;box-shadow:var(--shadow);
+    color:var(--ink);font-size:13px;line-height:1.45;cursor:pointer;animation:hintIn .25s ease;
+}
+.notify-hint p{margin:0;}
+.notify-hint i{flex:0 0 auto;color:var(--accent);font-size:15px;margin-top:1px;}
+.notify-hint .nh-x{color:var(--muted);font-size:13px;}
+.notify-hint.out{opacity:0;transform:translateY(-6px);transition:opacity .3s,transform .3s;}
+@keyframes hintIn{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
 
 /* services strip */
 .services{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;}

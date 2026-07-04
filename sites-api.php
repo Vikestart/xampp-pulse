@@ -49,6 +49,10 @@ try {
         $r = sx_fix_root_index();
     } elseif ($action === 'fix_localhost_cert') {
         $r = sx_fix_localhost_cert();
+    } elseif ($action === 'open_folder_enable') {
+        $r = sx_register_open_protocol();
+    } elseif ($action === 'open_folder_disable') {
+        $r = sx_unregister_open_protocol();
     } elseif ($action === 'service') {
         $r = sx_service_control((string) ($_POST['service'] ?? ''), (string) ($_POST['op'] ?? ''));
     } elseif ($action === 'env_read') {

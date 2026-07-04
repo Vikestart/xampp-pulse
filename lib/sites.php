@@ -157,11 +157,29 @@ function sx_ssh_wrapper(): string
     return SX_HTDOCS . '/xampp-pulse/bin/pulse-ssh.ps1';
 }
 
-/** Whether the pulsessh:// protocol handler is registered and points at our wrapper. */
+/** Absolute path to the shared VBScript that runs a wrapper with no console flash. */
+function sx_hidden_launcher(): string
+{
+    return SX_HTDOCS . '/xampp-pulse/bin/pulse-hidden.vbs';
+}
+
+/** Registry command that runs $wrapper (+ any fixed $extra args, then the "%1" URL) without a
+ *  console window: wscript.exe (windowless) runs the VBScript, which starts PowerShell hidden. */
+function sx_hidden_command(string $wrapper, array $extra = []): string
+{
+    $cmd = 'wscript.exe "' . str_replace('/', '\\', sx_hidden_launcher()) . '" "' . str_replace('/', '\\', $wrapper) . '"';
+    foreach ($extra as $a) {
+        $cmd .= ' "' . str_replace('/', '\\', $a) . '"';
+    }
+    return $cmd . ' "%1"';
+}
+
+/** Whether pulsessh:// is registered via our hidden launcher. A pre-hidden registration (direct
+ *  powershell, which flashed a console) reads as not-installed so the next enable re-registers it. */
 function sx_ssh_protocol_status(): bool
 {
     $r = sx_run(['reg', 'query', 'HKLM\\SOFTWARE\\Classes\\pulsessh\\shell\\open\\command', '/ve']);
-    return $r['code'] === 0 && stripos($r['out'], 'pulse-ssh.ps1') !== false;
+    return $r['code'] === 0 && stripos($r['out'], 'pulse-hidden.vbs') !== false && stripos($r['out'], 'pulse-ssh.ps1') !== false;
 }
 
 /** Register the pulsessh:// handler machine-wide (needs the SYSTEM context). */
@@ -169,10 +187,10 @@ function sx_register_ssh_protocol(): array
 {
     $log = [];
     $wrapper = sx_ssh_wrapper();
-    if (!is_file($wrapper)) {
-        throw new SiteError('Launcher script missing: ' . $wrapper);
+    if (!is_file($wrapper) || !is_file(sx_hidden_launcher())) {
+        throw new SiteError('Launcher script missing: ' . (is_file($wrapper) ? sx_hidden_launcher() : $wrapper));
     }
-    $cmd = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' . $wrapper . '" "%1"';
+    $cmd = sx_hidden_command($wrapper);
     $key = 'HKLM\\SOFTWARE\\Classes\\pulsessh';
     $r1 = sx_run(['reg', 'add', $key, '/ve', '/d', 'URL:Pulse SSH', '/f']);
     $r2 = sx_run(['reg', 'add', $key, '/v', 'URL Protocol', '/f']);
@@ -191,6 +209,42 @@ function sx_unregister_ssh_protocol(): array
     sx_run(['reg', 'delete', 'HKLM\\SOFTWARE\\Classes\\pulsessh', '/f']);
     sx_log($log, 'ok', 'Removed the pulsessh:// handler.');
     return ['ok' => true, 'enabled' => false, 'log' => $log, 'message' => 'Terminal launching disabled.'];
+}
+
+/** Absolute path to the pulsefolder:// launcher wrapper (shipped in the repo). */
+function sx_open_wrapper(): string
+{
+    return SX_HTDOCS . '/xampp-pulse/bin/pulse-open.ps1';
+}
+
+/** Register the pulsefolder:// handler machine-wide. The htdocs root is baked into the
+ *  command so the launcher can only ever open folders under it. Needs the SYSTEM context. */
+function sx_register_open_protocol(): array
+{
+    $log = [];
+    $wrapper = sx_open_wrapper();
+    if (!is_file($wrapper) || !is_file(sx_hidden_launcher())) {
+        throw new SiteError('Launcher script missing: ' . (is_file($wrapper) ? sx_hidden_launcher() : $wrapper));
+    }
+    $cmd = sx_hidden_command($wrapper, [str_replace('/', '\\', SX_HTDOCS)]);
+    $key = 'HKLM\\SOFTWARE\\Classes\\pulsefolder';
+    $r1 = sx_run(['reg', 'add', $key, '/ve', '/d', 'URL:Pulse Folder', '/f']);
+    $r2 = sx_run(['reg', 'add', $key, '/v', 'URL Protocol', '/f']);
+    $r3 = sx_run(['reg', 'add', $key . '\\shell\\open\\command', '/ve', '/d', $cmd, '/f']);
+    if ($r1['code'] !== 0 || $r2['code'] !== 0 || $r3['code'] !== 0) {
+        throw new SiteError('Registry write failed: ' . trim($r1['out'] . ' ' . $r2['out'] . ' ' . $r3['out']));
+    }
+    sx_log($log, 'ok', 'Registered pulsefolder:// → ' . basename($wrapper));
+    return ['ok' => true, 'enabled' => true, 'log' => $log, 'message' => 'Folder opening enabled.'];
+}
+
+/** Remove the pulsefolder:// handler (idempotent). */
+function sx_unregister_open_protocol(): array
+{
+    $log = [];
+    sx_run(['reg', 'delete', 'HKLM\\SOFTWARE\\Classes\\pulsefolder', '/f']);
+    sx_log($log, 'ok', 'Removed the pulsefolder:// handler.');
+    return ['ok' => true, 'enabled' => false, 'log' => $log, 'message' => 'Folder opening disabled.'];
 }
 
 /** Find the Windows service whose binary path matches $needle (e.g. 'mysqld'). */

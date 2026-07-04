@@ -37,6 +37,7 @@
     let timer = null;
     let intervalMs = 5000;
     let notifyOn = false;
+    let folderLaunch = window.__FOLDER_LAUNCH__ === true;
     let statusFilter = 'all';
 
     /* ---------- helpers ---------- */
@@ -229,7 +230,7 @@
         const actions = [];
         if (s.configured) actions.push(`<a class="action" href="https://${esc(s.domain)}/" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i><span>Open site</span></a>`);
         if (s.docroot_exists) actions.push(`<a class="action" href="vscode://file/${esc(s.docroot)}"><i class="fa-solid fa-code"></i><span>Open in VS Code</span></a>`);
-        if (s.docroot_exists) actions.push(`<button class="action copy-path" type="button" data-path="${esc(s.docroot)}"><i class="fa-solid fa-copy"></i><span>Copy path</span></button>`);
+        if (s.docroot_exists) actions.push(`<button class="action open-folder" type="button" data-path="${esc(s.docroot)}"><i class="fa-solid fa-folder-open"></i><span>Open folder</span></button>`);
         if (s.docroot_exists) actions.push(`<button class="action site-env" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-file-code"></i><span>Edit .env</span></button>`);
         if (s.docroot_exists) actions.push(`<button class="action site-git" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-code-branch"></i><span>Git</span></button>`);
         if (s.docroot_exists) actions.push(`<button class="action site-tasks" type="button" data-folder="${esc(s.folder)}"><i class="fa-solid fa-play"></i><span>Tasks</span></button>`);
@@ -272,6 +273,23 @@
     function setBellIcon() {
         notifyBtn.innerHTML = `<i class="fa-solid fa-bell${notifyOn ? '' : '-slash'}"></i>`;
         notifyBtn.classList.toggle('on', notifyOn);
+    }
+    function clearNotifyHint() { document.querySelectorAll('.notify-hint').forEach((n) => n.remove()); }
+    // Guide the user when the browser doesn't show the loud Allow/Block modal — either it
+    // demoted the request to the quiet address-bar bell, or notifications are already blocked.
+    function notifyHint(kind) {
+        clearNotifyHint();
+        const denied = kind === 'denied';
+        const el = document.createElement('div');
+        el.className = 'notify-hint';
+        el.setAttribute('role', 'status');
+        el.innerHTML = denied
+            ? '<i class="fa-solid fa-bell-slash"></i><p>Notifications are <b>blocked</b> for this site. Open the site&rsquo;s permissions <b>from the address bar → Notifications → Allow</b>, then click the bell again.</p><i class="fa-solid fa-xmark nh-x"></i>'
+            : '<i class="fa-solid fa-bell"></i><p>Edge may ask quietly. If no <b>Allow</b> popup appears, click the <b>bell icon in the address bar</b> and choose <b>Allow</b>.</p><i class="fa-solid fa-xmark nh-x"></i>';
+        document.body.appendChild(el);
+        const kill = () => { el.classList.add('out'); setTimeout(() => el.remove(), 320); };
+        el.addEventListener('click', kill);
+        setTimeout(kill, denied ? 11000 : 9000);
     }
 
     /* ---------- apply snapshot ---------- */
@@ -447,21 +465,49 @@
     });
     drawerOverlay.addEventListener('click', closeDrawer);
     $('drawer-close').addEventListener('click', closeDrawer);
-    drawerBody.addEventListener('click', (e) => {
-        const cp = e.target.closest('.copy-path');
-        if (!cp) return;
-        const span = cp.querySelector('span');
-        const flash = (txt) => { const o = span.textContent; span.textContent = txt; cp.classList.add('ok'); setTimeout(() => { span.textContent = o; cp.classList.remove('ok'); }, 1400); };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(cp.dataset.path).then(() => flash('Copied!')).catch(() => flash('Copy failed'));
-        } else { flash('Unavailable'); }
+
+    // Open the site folder in Explorer via the pulsefolder:// handler (crosses session-0,
+    // like the SSH terminal button). First use registers the handler (auth-gated); if that's
+    // declined or unavailable, fall back to copying the path so it can be pasted into Explorer.
+    drawerBody.addEventListener('click', async (e) => {
+        const of = e.target.closest('.open-folder');
+        if (!of) return;
+        const path = of.dataset.path;
+        const span = of.querySelector('span');
+        const orig = span.textContent;
+        const flash = (txt, ms) => { span.textContent = txt; of.classList.add('ok'); setTimeout(() => { span.textContent = orig; of.classList.remove('ok'); }, ms || 1400); };
+        const launch = () => { const a = document.createElement('a'); a.href = 'pulsefolder:' + encodeURIComponent(path); a.click(); };
+        const copyFallback = () => {
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(path).then(() => flash('Path copied', 1800)).catch(() => flash('Failed'));
+            else flash('Unavailable');
+        };
+        if (folderLaunch) { launch(); flash('Opening…'); return; }
+        of.disabled = true;
+        span.textContent = 'Enabling…';
+        try {
+            const r = await window.pulsePost('/xampp-pulse/sites-api.php', { action: 'open_folder_enable' });
+            if (r && r.ok) { folderLaunch = true; launch(); flash('Opening…'); }
+            else if (r && r.locked) { span.textContent = orig; }
+            else copyFallback();
+        } catch (x) { copyFallback(); }
+        finally { of.disabled = false; }
     });
 
     notifyBtn.addEventListener('click', async () => {
         if (!notifyOn) {
             if (window.Notification && Notification.permission !== 'granted') {
-                const p = await Notification.requestPermission();
-                if (p !== 'granted') return;
+                let settled = false;
+                // On low-engagement origins Edge/Chrome demote the prompt to the quiet
+                // address-bar bell and leave the promise pending — nudge the user to it.
+                const hintTimer = setTimeout(() => {
+                    if (!settled && Notification.permission !== 'granted') notifyHint('default');
+                }, 1500);
+                let p;
+                try { p = await Notification.requestPermission(); } catch (e) { p = Notification.permission; }
+                settled = true;
+                clearTimeout(hintTimer);
+                if (p !== 'granted') { notifyHint(p === 'denied' ? 'denied' : 'default'); return; }
+                clearNotifyHint();
             }
             notifyOn = true;
         } else { notifyOn = false; }

@@ -1,14 +1,33 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/lib/helpers.php';
+
 // Defence-in-depth: only serve to a local Host (blocks DNS-rebinding against the dashboard).
 $__host = strtolower((string) preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost')));
 if (!in_array($__host, ['localhost', '127.0.0.1', '::1', '[::1]'], true)) {
     http_response_code(403);
     exit('Forbidden.');
 }
+
 $nonce = base64_encode(random_bytes(16));
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+
+// Require HTTPS. Browsers only keep notification permission (and only keep the CSRF/unlock
+// tokens encrypted) on a secure origin, so the dashboard refuses to run over plain http://:
+//   • cert already trusted → transparently redirect to the https instance;
+//   • cert not trusted yet → serve a blocking gate whose only action issues & trusts the
+//     localhost cert, then upgrades to https. No dashboard is ever rendered over http.
+$__https = (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+    || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+if (!$__https) {
+    if (pulse_localhost_cert_ok()) {
+        header('Location: https://' . $__host . ($_SERVER['REQUEST_URI'] ?? '/'), true, 302);
+        exit;
+    }
+    require __DIR__ . '/http-gate.php';
+    exit;
+}
 
 require_once __DIR__ . '/lib/collectors.php';
 
@@ -182,6 +201,7 @@ $tabs = [
 <link rel="manifest" href="/xampp-pulse/manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="/xampp-pulse/assets/img/icon.svg">
 <link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/xampp-pulse/assets/font-awesome/css/all.min.css">
 <link rel="stylesheet" href="/xampp-pulse/assets/css/dashboard.css">
 <script nonce="<?= $nonce ?>">(function(){try{var d=document.documentElement,t=localStorage.getItem('dash-theme'),b=localStorage.getItem('dash-tab');if(t)d.dataset.theme=t;if(b)d.dataset.tab=b;if(localStorage.getItem('dash-db-collapsed')==='1')d.dataset.dbcollapsed='1';}catch(e){}})();</script>
 </head>
@@ -481,10 +501,8 @@ $tabs = [
     <div class="drawer-body" id="drawer-body"></div>
 </aside>
 
-<script nonce="<?= $nonce ?>">window.__PULSE_TOKEN__ = <?= json_encode(pulse_csrf_token()) ?>;</script>
+<script nonce="<?= $nonce ?>">window.__PULSE_TOKEN__ = <?= json_encode(pulse_csrf_token()) ?>; window.__FOLDER_LAUNCH__ = <?= pulse_folder_launch_ok() ? 'true' : 'false' ?>;</script>
 <script nonce="<?= $nonce ?>">window.__SNAPSHOT__ = <?= pulse_json($snap) ?>;</script>
-<script defer src="/xampp-pulse/assets/font-awesome/fontawesome.min.js"></script>
-<script defer src="/xampp-pulse/assets/font-awesome/solid.min.js"></script>
 <script defer src="/xampp-pulse/assets/js/auth.js"></script>
 <script defer src="/xampp-pulse/assets/js/dashboard.js"></script>
 <script defer src="/xampp-pulse/assets/js/sync.js"></script>

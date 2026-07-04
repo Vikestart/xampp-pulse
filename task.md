@@ -33,3 +33,31 @@ Decisions: phased · passphrase unlock · bundled PHP mail catcher · single PHP
 ## Phase 3 — Live-server connection
 - [ ] Prod health + SSL watch · remote log tail · remote runner · deploy panel
 - [ ] (needs input: live domains; which repo/remote drives the Plesk webhook)
+
+## Hardening / follow-ups  ✅ DONE (verified)
+- [x] Notification persistence — root cause was the dashboard running over `http://localhost`
+      (browsers don't durably keep notification permission there). render.php now **requires
+      HTTPS**: cert trusted → 302 to https; cert untrusted → blocking `http-gate.php` that
+      trusts the localhost cert (via the normal auth gate) then upgrades to https. No dashboard
+      served over http. Verified both branches.
+- [x] Notify bell hint — small below-topbar toast guiding the user to the browser's quiet
+      address-bar prompt / blocked-permission recovery (dashboard.js `notifyHint`).
+- [x] FontAwesome 6.7.2 SVG-JS → **FA7 Pro webfont** (all.min.css + woff2, copied from nebulingo).
+      Removes the flaky 2 MB runtime SVG converter; icons render via CSS `::before`. All 54 used
+      icons verified present in FA7. render.php/http-gate.php now `<link>` the CSS; sw.js shell
+      bumped to dash-v4. Verified live: topbar icons render at 19px in "Font Awesome 7 Pro".
+- [x] Drawer **"Open folder"** — opens the site docroot in Explorer via a new `pulsefolder://`
+      handler (`bin/pulse-open.ps1`), mirroring the `pulsessh://` terminal button (crosses
+      session-0). Wrapper validates the target is an existing directory **under htdocs** (root
+      baked into the registered command). First click registers the handler (auth-gated
+      `open_folder_enable`), then opens; state embedded as `window.__FOLDER_LAUNCH__`; copies the
+      path as a fallback. Verified: rejects System32 / nonexistent / `..` traversal, opens a valid
+      folder, button renders with correct path. Replaced the redundant "Copy path" drawer button.
+- [x] No console flash — both launchers now register as `wscript.exe "pulse-hidden.vbs" "<wrapper>" …`
+      (a windowless host that starts PowerShell hidden), instead of `powershell -WindowStyle Hidden`
+      which flashed a conhost window. Status checks require the `pulse-hidden.vbs` marker, so an
+      existing pre-hidden registration re-registers itself on next enable/open.
+- [x] Service-worker staleness fix — static assets ship with no `Cache-Control`, so the browser
+      heuristically cached them and even the network-first SW (which used `fetch(e.request)`)
+      served stale JS/CSS, forcing a hard refresh after every change. SW now fetches with
+      `{cache:'no-cache'}` (revalidate) and is bumped to dash-v5. Edits now land on a normal reload.

@@ -71,6 +71,21 @@ function pulse_localhost_cert_ok(): bool
     return $fp !== '' && is_array($rec) && ($rec['sha256'] ?? '') === $fp;
 }
 
+/** Read-only: is the pulsefolder:// launcher registered and pointing at our wrapper?
+ *  (The write side lives in sites.php; this keeps the snapshot free of that dependency.) */
+function pulse_folder_launch_ok(): bool
+{
+    if (!function_exists('exec')) {
+        return false;
+    }
+    $out = [];
+    $code = 1;
+    @exec('reg query "HKLM\\SOFTWARE\\Classes\\pulsefolder\\shell\\open\\command" /ve 2>&1', $out, $code);
+    $s = implode("\n", $out);
+    // Require the hidden launcher so a pre-hidden registration re-registers on next use.
+    return $code === 0 && stripos($s, 'pulse-hidden.vbs') !== false && stripos($s, 'pulse-open.ps1') !== false;
+}
+
 /** Persistent per-install CSRF token (for the privileged, state-changing endpoints). */
 function pulse_csrf_token(): string
 {
