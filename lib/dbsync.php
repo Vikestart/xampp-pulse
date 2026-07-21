@@ -11,6 +11,9 @@ require_once __DIR__ . '/paths.php';
 
 const SYNC_ROLES = ['local', 'staging', 'production'];
 
+/** Newest dump/backup .sql files kept per database in site-manager-backups (older auto-pruned). */
+const SYNC_KEEP_BACKUPS = 5;
+
 function sync_config_path(): string
 {
     $dir = __DIR__ . '/../.config';
@@ -374,6 +377,32 @@ function table_data_sql(mysqli $srcConn, string $srcDb, mysqli $tgtConn, string 
     return ['sql' => $sql, 'rows' => $rows, 'capped' => $capped];
 }
 
+/** Keep only the $keep newest "$prefix*.sql" files in $dir; delete the rest. Returns count removed. */
+function prune_backups(string $dir, string $prefix, int $keep = SYNC_KEEP_BACKUPS): int
+{
+    if (!is_dir($dir) || $keep < 0) {
+        return 0;
+    }
+    $plen = strlen($prefix);
+    $files = [];
+    foreach (scandir($dir) ?: [] as $name) {
+        if (strncmp($name, $prefix, $plen) === 0 && substr($name, -4) === '.sql') {
+            $files[] = $dir . DIRECTORY_SEPARATOR . $name;
+        }
+    }
+    if (count($files) <= $keep) {
+        return 0;
+    }
+    usort($files, static fn (string $a, string $b): int => filemtime($b) <=> filemtime($a)); // newest first
+    $removed = 0;
+    foreach (array_slice($files, $keep) as $old) {
+        if (@unlink($old)) {
+            $removed++;
+        }
+    }
+    return $removed;
+}
+
 /** mysqldump a target DB (local or remote-over-Tailscale) to site-manager-backups before any write. */
 function backup_db(string $host, int $port, string $user, string $pass, string $db): string
 {
@@ -401,6 +430,7 @@ function backup_db(string $host, int $port, string $user, string $pass, string $
     if ($code !== 0 || (int) @filesize($file) === 0) {
         throw new RuntimeException('Backup failed: ' . trim((string) $err));
     }
+    prune_backups($dir, $db . '-presync-'); // cap this DB's pre-write backups
     return $file;
 }
 
@@ -674,6 +704,9 @@ function clone_database(array $srcEnv, string $srcUser, string $srcPass, array $
         $imp = import_file_into($tgtEnv, $tgtUser, $tgtPass, $db, $dumpFile);
     }
 
+    // Cap this source's fetch dumps (the local pre-write backups were capped in backup_db).
+    $pruned = prune_backups($dir, $srcDb . '-fetch-');
+
     // 4. Read the result for the report.
     $chk = sync_connect($tgtEnv, $tgtUser, $tgtPass, true);
     $schema = read_schema($chk, $db);
@@ -694,6 +727,7 @@ function clone_database(array $srcEnv, string $srcUser, string $srcPass, array $
         'backup' => $backup !== null ? basename($backup) : null,
         'local_existed' => $localExisted,
         'compat' => $compat,
+        'pruned' => $pruned,
         'elapsed_ms' => (int) round((microtime(true) - $t0) * 1000),
         'warn' => trim(($dump['warn'] ?? '') . ' ' . ($imp['warn'] ?? '')),
     ];

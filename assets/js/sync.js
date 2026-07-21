@@ -160,6 +160,7 @@
             const secs = (r.elapsed_ms / 1000).toFixed(1);
             rep.innerHTML = `<div class="sync-ok"><i class="fa-solid fa-check"></i> Copied <b>${esc(r.source.db)}</b> → <b>${esc(r.target.db)}</b>: ${r.tables} tables, ≈${Number(r.rows).toLocaleString()} rows (${mb} MB, ${secs}s).`
                 + (r.backup ? `<br><small>Local backup: ${esc(r.backup)} &middot; dump: ${esc(r.dump_file)}</small>` : `<br><small>No prior local database to back up &middot; dump: ${esc(r.dump_file)}</small>`)
+                + (r.pruned ? `<br><small class="muted">Auto-pruned ${r.pruned} old dump${r.pruned === 1 ? '' : 's'} — backups kept to the 5 most recent per database.</small>` : '')
                 + (r.compat ? '<br><small class="muted">The source uses newer-server collations (uca1400 / 0900) — mapped to unicode_ci so this local MariaDB could import them. Data is unchanged; only sort/label of some text columns.</small>' : '')
                 + (r.warn ? `<br><small class="muted">Notes: ${esc(r.warn)}</small>` : '')
                 + '</div>';

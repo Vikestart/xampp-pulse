@@ -9,3 +9,4 @@ One line per shipped change (newest first). Detailed progress lives in `task.md`
   Fixed the stale "Production is never written (Phase 1)" banner. Auto-handles a newer source than
   local: on an "Unknown collation/charset" import error, rewrites the dump's `_uca1400_`/`_0900_`
   collations → `_unicode_ci` and `utf8mb3` → `utf8` (DDL only; row data untouched) and retries.
+  Auto-prunes the `site-manager-backups/` dumps + pre-write backups to the 5 newest per database.

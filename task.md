@@ -66,6 +66,10 @@ Decisions: phased · passphrase unlock · bundled PHP mail catcher · single PHP
       failed on older local MariaDB. On an "Unknown collation/charset" error the dump is rewritten
       (`→ _unicode_ci`, `utf8mb3 → utf8`, DDL lines only) and re-imported. Verified it reproduces &
       fixes the real 1273 error with row data preserved; reported to the user via a `compat` note.
+- [x] Backup auto-prune — `prune_backups()` keeps the newest `SYNC_KEEP_BACKUPS` (5) `.sql` files
+      per `<db>-<kind>` prefix. Called in `backup_db` (pre-write backups, so schema-sync benefits too)
+      and `clone_database` (source fetch dumps; count surfaced in the report). Verified: keeps 5
+      newest, ignores other DBs/kinds/non-.sql, idempotent.
 - [x] Service-worker staleness fix — static assets ship with no `Cache-Control`, so the browser
       heuristically cached them and even the network-first SW (which used `fetch(e.request)`)
       served stale JS/CSS, forcing a hard refresh after every change. SW now fetches with
