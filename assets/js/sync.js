@@ -122,6 +122,15 @@
         resultEl.innerHTML = head + `<div class="diff-list">${body}</div>` + (same ? `<p class="cmp-note">${same} table${same === 1 ? '' : 's'} identical (hidden).</p>` : '');
 
         const tgtEnv = envById[lastCmp.target];
+
+        // Full "as-is" copy — only into a local target. Shown regardless of schema diff
+        // (you may just want fresh production data even when the structure already matches).
+        if (tgtEnv && tgtEnv.role === 'local') {
+            resultEl.insertAdjacentHTML('beforeend', fullCopyBlock(s, t));
+            const fc = $('fullcopy-btn');
+            if (fc) fc.addEventListener('click', runFullCopy);
+        }
+
         if (n > 0) {
             const canSync = tgtEnv && (tgtEnv.role === 'local' || tgtEnv.role === 'staging');
             const planBtn = canSync ? `<button id="plan-btn" class="btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Build sync plan → ${esc(t.label)}</button>` : '';
@@ -130,6 +139,32 @@
             if (canSync) $('plan-btn').addEventListener('click', buildPlan);
             $('draft-btn').addEventListener('click', draftMigration);
         }
+    }
+
+    /* ---------- full "as-is" copy (source → local) ---------- */
+    function fullCopyBlock(s, t) {
+        return '<div class="fullcopy">'
+            + `<h3 class="drawer-h"><i class="fa-solid fa-download"></i> Fetch full copy → ${esc(t.label)} (as-is)</h3>`
+            + `<p class="cmp-note">Replaces <b>${esc(t.db)}</b> with an exact copy of <b>${esc(s.label)}</b> · <b>${esc(s.db)}</b> — every table and row, dropping anything local-only. The local database is backed up first and the source is only read. Large databases can take a while.</p>`
+            + `<div class="apply-row"><input id="fullcopy-confirm" placeholder="type &ldquo;${esc(t.db)}&rdquo; to confirm" autocomplete="off"><button id="fullcopy-btn" class="btn-danger"><i class="fa-solid fa-download"></i> Overwrite local with ${esc(s.db)}</button></div>`
+            + '<div id="fullcopy-report"></div>';
+    }
+    async function runFullCopy() {
+        const btn = $('fullcopy-btn'), rep = $('fullcopy-report');
+        btn.disabled = true; btn.classList.add('busy');
+        rep.innerHTML = '<p class="cmp-note">Dumping the source, backing up local, importing… this can take a while for large databases — leave the tab open.</p>';
+        try {
+            const r = await post({ action: 'full_copy', ...lastCmp, confirm: $('fullcopy-confirm').value });
+            if (!r.ok) { rep.innerHTML = `<div class="diff-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(r.error || 'Copy failed.')}</div>`; return; }
+            const mb = (r.dump_bytes / 1048576).toFixed(1);
+            const secs = (r.elapsed_ms / 1000).toFixed(1);
+            rep.innerHTML = `<div class="sync-ok"><i class="fa-solid fa-check"></i> Copied <b>${esc(r.source.db)}</b> → <b>${esc(r.target.db)}</b>: ${r.tables} tables, ≈${Number(r.rows).toLocaleString()} rows (${mb} MB, ${secs}s).`
+                + (r.backup ? `<br><small>Local backup: ${esc(r.backup)} &middot; dump: ${esc(r.dump_file)}</small>` : `<br><small>No prior local database to back up &middot; dump: ${esc(r.dump_file)}</small>`)
+                + (r.compat ? '<br><small class="muted">The source uses newer-server collations (uca1400 / 0900) — mapped to unicode_ci so this local MariaDB could import them. Data is unchanged; only sort/label of some text columns.</small>' : '')
+                + (r.warn ? `<br><small class="muted">Notes: ${esc(r.warn)}</small>` : '')
+                + '</div>';
+        } catch (e) { rep.innerHTML = `<div class="diff-error">${esc(e.message || e)}</div>`; }
+        finally { btn.disabled = false; btn.classList.remove('busy'); }
     }
     async function runCompare() {
         lastCmp = {

@@ -319,7 +319,7 @@ $tabs = [
 
         <div class="sync-banner">
             <i class="fa-solid fa-shield-halved"></i>
-            <span><b>Cross-environment compare — read-only.</b> Connects with the credentials you enter (sent once, never stored) and only reads schema. <b>Production is never written by this tool yet (Phase 1).</b></span>
+            <span><b>Compare is read-only</b> — connects with the credentials you enter (sent once, never stored) and only reads schema. A <b>full copy</b> or <b>data sync</b> only ever writes a <b>local</b> database; <b>production is only ever read</b>. Schema reaches production solely through reviewed, staging-verified migrations below.</span>
         </div>
         <div class="cols cols-even">
             <section class="panel">

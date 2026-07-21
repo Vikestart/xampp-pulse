@@ -57,6 +57,15 @@ Decisions: phased · passphrase unlock · bundled PHP mail catcher · single PHP
       (a windowless host that starts PowerShell hidden), instead of `powershell -WindowStyle Hidden`
       which flashed a conhost window. Status checks require the `pulse-hidden.vbs` marker, so an
       existing pre-hidden registration re-registers itself on next enable/open.
+- [x] DB tab — **full "as-is" copy, source → local** (`clone_database` in lib/dbsync.php + `full_copy`
+      action + compare-result button). mysqldump source read-only → back up local → drop/recreate →
+      import = exact mirror (drops local-only tables). Guards: local-only target, production denied,
+      typed-name confirm; creds via env, never stored. Verified end-to-end on throwaway local DBs
+      (mirror correct, local-only dropped, source untouched, guards reject). Banner corrected.
+- [x] Cross-version import — a newer source's collations (MariaDB `_uca1400_`, MySQL-8 `_0900_`)
+      failed on older local MariaDB. On an "Unknown collation/charset" error the dump is rewritten
+      (`→ _unicode_ci`, `utf8mb3 → utf8`, DDL lines only) and re-imported. Verified it reproduces &
+      fixes the real 1273 error with row data preserved; reported to the user via a `compat` note.
 - [x] Service-worker staleness fix — static assets ship with no `Cache-Control`, so the browser
       heuristically cached them and even the network-first SW (which used `fetch(e.request)`)
       served stale JS/CSS, forcing a hard refresh after every change. SW now fetches with

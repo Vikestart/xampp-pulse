@@ -480,3 +480,221 @@ function apply_plan(array $srcEnv, string $srcUser, string $srcPass, array $tgtE
         'data' => $dataInfo,
     ];
 }
+
+/* ====================  Full copy — source → LOCAL (as-is)  ==================== */
+
+/** Whether a database exists on this connection. */
+function db_exists(mysqli $conn, string $db): bool
+{
+    $esc = mysqli_real_escape_string($conn, $db);
+    $res = mysqli_query($conn, "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$esc'");
+    $ok = $res && mysqli_num_rows($res) > 0;
+    if ($res) {
+        mysqli_free_result($res);
+    }
+    return (bool) $ok;
+}
+
+/** mysqldump a single source database (read-only, non-locking) to $file. No CREATE DATABASE,
+ *  so the dump restores into a local database of any name. Password via env, never on disk. */
+function dump_source_to_file(array $env, string $user, string $pass, string $file): array
+{
+    $bin = XAMPP_ROOT . '/mysql/bin/mysqldump.exe';
+    if (!is_file($bin) || !function_exists('proc_open')) {
+        throw new RuntimeException('mysqldump / proc_open unavailable.');
+    }
+    $cmd = [
+        $bin, '-h', (string) $env['host'], '-P', (string) (int) $env['port'], '-u', $user,
+        '--single-transaction', '--quick', '--routines', '--triggers', '--events',
+        '--no-tablespaces', '--default-character-set=utf8mb4', (string) $env['db'],
+    ];
+    $envv = array_merge(getenv(), $pass !== '' ? ['MYSQL_PWD' => $pass] : []);
+    $fp = fopen($file, 'wb');
+    if (!$fp) {
+        throw new RuntimeException('Could not open the dump file for writing.');
+    }
+    $proc = proc_open($cmd, [1 => $fp, 2 => ['pipe', 'w']], $pipes, null, $envv);
+    if (!is_resource($proc)) {
+        fclose($fp);
+        throw new RuntimeException('Could not launch mysqldump.');
+    }
+    $err = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $code = proc_close($proc);
+    fclose($fp);
+    if ($code !== 0) {
+        @unlink($file);
+        throw new RuntimeException('mysqldump failed: ' . trim($err));
+    }
+    return ['bytes' => (int) @filesize($file), 'warn' => trim($err)];
+}
+
+/** Import a .sql dump into $db on $env with the mysql client (stdin = file). */
+function import_file_into(array $env, string $user, string $pass, string $db, string $file): array
+{
+    $bin = XAMPP_ROOT . '/mysql/bin/mysql.exe';
+    if (!is_file($bin) || !function_exists('proc_open')) {
+        throw new RuntimeException('mysql client / proc_open unavailable.');
+    }
+    $cmd = [$bin, '-h', (string) $env['host'], '-P', (string) (int) $env['port'], '-u', $user, '--default-character-set=utf8mb4', $db];
+    $envv = array_merge(getenv(), $pass !== '' ? ['MYSQL_PWD' => $pass] : []);
+    $fp = fopen($file, 'rb');
+    if (!$fp) {
+        throw new RuntimeException('Could not open the dump file for reading.');
+    }
+    $proc = proc_open($cmd, [0 => $fp, 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $envv);
+    if (!is_resource($proc)) {
+        fclose($fp);
+        throw new RuntimeException('Could not launch the mysql client.');
+    }
+    $out = stream_get_contents($pipes[1]);
+    $err = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($proc);
+    fclose($fp);
+    if ($code !== 0) {
+        throw new RuntimeException('Import failed: ' . trim($err ?: $out));
+    }
+    return ['warn' => trim($err)];
+}
+
+/** Drop + recreate an empty local database (utf8mb4). */
+function recreate_local_db(array $tgtEnv, string $user, string $pass, string $db): void
+{
+    $admin = sync_connect(['host' => $tgtEnv['host'], 'port' => $tgtEnv['port'], 'db' => ''], $user, $pass, false);
+    $err = '';
+    if (!@mysqli_query($admin, 'DROP DATABASE IF EXISTS ' . qid($db))) {
+        $err = mysqli_error($admin);
+    } elseif (!@mysqli_query($admin, 'CREATE DATABASE ' . qid($db) . ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')) {
+        $err = mysqli_error($admin);
+    }
+    mysqli_close($admin);
+    if ($err !== '') {
+        throw new RuntimeException('Could not recreate the local database: ' . $err);
+    }
+}
+
+/**
+ * Rewrite a dump so an older local server can import a newer source's collations: map the
+ * MariaDB UCA-14.0.0 (`_uca1400_…`) and MySQL-8 (`_0900_…`) collations to the classic
+ * `_unicode_ci`, and the `utf8mb3` alias to `utf8`. Only DDL/SET lines are touched (row data
+ * is left byte-for-byte), and it streams line-by-line so large dumps stay memory-safe.
+ * Returns true if anything changed. Data is unaffected — only collation labels.
+ */
+function rewrite_dump_for_compat(string $file): bool
+{
+    $tmp = $file . '.compat';
+    $in = @fopen($file, 'rb');
+    $out = @fopen($tmp, 'wb');
+    if (!$in || !$out) {
+        if ($in) {
+            fclose($in);
+        }
+        if ($out) {
+            fclose($out);
+        }
+        return false;
+    }
+    $changed = false;
+    while (($line = fgets($in)) !== false) {
+        if (preg_match('/COLLATE|CHARSET|CHARACTER SET|SET NAMES/i', $line)) {
+            $orig = $line;
+            $line = (string) preg_replace('/\b([a-z0-9]+)_(?:uca1400|0900)_[a-z0-9_]+/i', '$1_unicode_ci', $line);
+            $line = (string) preg_replace('/\butf8mb3_/i', 'utf8_', $line);
+            $line = (string) preg_replace('/\butf8mb3\b/i', 'utf8', $line);
+            if ($line !== $orig) {
+                $changed = true;
+            }
+        }
+        fwrite($out, $line);
+    }
+    fclose($in);
+    fclose($out);
+    if ($changed) {
+        @rename($tmp, $file);
+    } else {
+        @unlink($tmp);
+    }
+    return $changed;
+}
+
+/**
+ * Full "as-is" copy of a source database into a LOCAL target: dump the source read-only,
+ * back up the existing local DB, drop/recreate it, then import — so local becomes an exact
+ * mirror (no leftover local-only tables). The source is only ever read.
+ */
+function clone_database(array $srcEnv, string $srcUser, string $srcPass, array $tgtEnv, string $tgtUser, string $tgtPass, string $confirm): array
+{
+    if (($tgtEnv['role'] ?? '') !== 'local' || is_production_target($tgtEnv)) {
+        throw new RuntimeException('A full copy can only overwrite a LOCAL database — never staging or production.');
+    }
+    $db = (string) ($tgtEnv['db'] ?? '');
+    $srcDb = (string) ($srcEnv['db'] ?? '');
+    if ($db === '' || $srcDb === '') {
+        throw new RuntimeException('Both the source and the local target need a database name.');
+    }
+    $key = static fn (array $e): string => strtolower(($e['host'] ?? '') . ':' . ($e['port'] ?? '') . ':' . ($e['db'] ?? ''));
+    if ($key($srcEnv) === $key($tgtEnv)) {
+        throw new RuntimeException('Source and target are the same database.');
+    }
+    if ($confirm !== $db) {
+        throw new RuntimeException('Type the local database name exactly to confirm.');
+    }
+
+    $t0 = microtime(true);
+
+    // 1. Dump the source read-only FIRST — a source failure leaves local untouched.
+    $dir = XAMPP_ROOT . DIRECTORY_SEPARATOR . 'site-manager-backups';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0777, true);
+    }
+    $dumpFile = $dir . DIRECTORY_SEPARATOR . $srcDb . '-fetch-' . date('Ymd-His') . '.sql';
+    $dump = dump_source_to_file($srcEnv, $srcUser, $srcPass, $dumpFile);
+
+    // 2. Back up the existing local DB (if any) before replacing it.
+    $probe = sync_connect(['host' => $tgtEnv['host'], 'port' => $tgtEnv['port'], 'db' => ''], $tgtUser, $tgtPass, false);
+    $localExisted = db_exists($probe, $db);
+    mysqli_close($probe);
+    $backup = $localExisted ? backup_db((string) $tgtEnv['host'], (int) $tgtEnv['port'], $tgtUser, $tgtPass, $db) : null;
+
+    // 3. Recreate the local DB empty and import. If this local server doesn't know a newer
+    //    source's collations, rewrite the dump to compatible ones and retry once (the first
+    //    attempt fails fast on an early CREATE TABLE, before any data is loaded).
+    recreate_local_db($tgtEnv, $tgtUser, $tgtPass, $db);
+    $compat = false;
+    try {
+        $imp = import_file_into($tgtEnv, $tgtUser, $tgtPass, $db, $dumpFile);
+    } catch (RuntimeException $e) {
+        if (!preg_match('/Unknown collation|Unknown character set/i', $e->getMessage()) || !rewrite_dump_for_compat($dumpFile)) {
+            throw $e;
+        }
+        $compat = true;
+        recreate_local_db($tgtEnv, $tgtUser, $tgtPass, $db);
+        $imp = import_file_into($tgtEnv, $tgtUser, $tgtPass, $db, $dumpFile);
+    }
+
+    // 4. Read the result for the report.
+    $chk = sync_connect($tgtEnv, $tgtUser, $tgtPass, true);
+    $schema = read_schema($chk, $db);
+    mysqli_close($chk);
+    $rows = 0;
+    foreach ($schema as $t) {
+        $rows += (int) $t['rows'];
+    }
+
+    return [
+        'ok' => true,
+        'source' => ['label' => $srcEnv['label'] ?? '', 'db' => $srcDb, 'host' => $srcEnv['host'] ?? ''],
+        'target' => ['label' => $tgtEnv['label'] ?? '', 'db' => $db],
+        'tables' => count($schema),
+        'rows' => $rows,
+        'dump_file' => basename($dumpFile),
+        'dump_bytes' => $dump['bytes'],
+        'backup' => $backup !== null ? basename($backup) : null,
+        'local_existed' => $localExisted,
+        'compat' => $compat,
+        'elapsed_ms' => (int) round((microtime(true) - $t0) * 1000),
+        'warn' => trim(($dump['warn'] ?? '') . ' ' . ($imp['warn'] ?? '')),
+    ];
+}

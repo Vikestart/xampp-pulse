@@ -127,6 +127,26 @@ try {
         exit;
     }
 
+    if ($action === 'full_copy') {
+        @set_time_limit(0); // a full production copy can run for a while
+        $src = find_environment((string) ($_POST['source'] ?? ''));
+        $tgt = find_environment((string) ($_POST['target'] ?? ''));
+        if (!$src || !$tgt) {
+            throw new RuntimeException('Choose a source and a target.');
+        }
+        $report = clone_database(
+            $src,
+            (string) ($_POST['source_user'] ?? 'root'),
+            (string) ($_POST['source_pass'] ?? ''),
+            $tgt,
+            (string) ($_POST['target_user'] ?? 'root'),
+            (string) ($_POST['target_pass'] ?? ''),
+            (string) ($_POST['confirm'] ?? '')
+        );
+        echo pulse_json($report);
+        exit;
+    }
+
     if ($action === 'mig_list') {
         echo pulse_json(['ok' => true, 'files' => list_migration_files((string) ($_POST['group'] ?? $_GET['group'] ?? ''))]);
         exit;
